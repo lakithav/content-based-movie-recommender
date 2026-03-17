@@ -1,0 +1,2 @@
+web/model/*.pkl
+!web/model/.gitkeep
