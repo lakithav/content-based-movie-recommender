@@ -242,13 +242,16 @@ def recommend(movie):
   recommended_movies_poster = []
   for i in distances[1:6]:
     movie_id = normalize_movie_id(movies.iloc[i[0]].movie_id)
-    recommended_movies_name.append(movies.iloc[i[0]].title)
-    recommended_movies_poster.append(fetch_poster(movie_id))
+    movie_title = movies.iloc[i[0]].title
+    recommended_movies_name.append(movie_title)
+    recommended_movies_poster.append(fetch_poster(movie_id, movie_title))
   return recommended_movies_name, recommended_movies_poster
 
-def fetch_poster(movie_id):
+def fetch_poster(movie_id, movie_title):
+    poster_unavailable = "https://placehold.co/500x750/0f172a/e2e8f0?text=Poster+Unavailable"
+
     if not movie_id:
-        return "https://placehold.co/500x750/0f172a/e2e8f0?text=Poster+Unavailable"
+        movie_id = ""
 
     api_key = get_tmdb_api_key()
     if not api_key:
@@ -256,18 +259,44 @@ def fetch_poster(movie_id):
 
     try:
         response = requests.get(
-            'https://api.themoviedb.org/3/movie/{}?api_key={}&language=en-US'.format(movie_id, api_key),
+            f"https://api.themoviedb.org/3/movie/{movie_id}",
+            params={"api_key": api_key, "language": "en-US"},
             timeout=30,
         )
-        response.raise_for_status()
-        data = response.json()
-        poster_path = data.get('poster_path')
-        if poster_path:
-            return "https://image.tmdb.org/t/p/w500/" + poster_path
+        if response.status_code == 401:
+            return "https://placehold.co/500x750/0f172a/e2e8f0?text=Invalid+TMDB+Key"
+        if response.ok:
+            data = response.json()
+            poster_path = data.get("poster_path")
+            if poster_path:
+                return "https://image.tmdb.org/t/p/w500/" + poster_path
     except requests.RequestException:
         pass
 
-    return "https://placehold.co/500x750/0f172a/e2e8f0?text=Poster+Unavailable"
+    # Fallback: try TMDB title search when ID lookup fails.
+    try:
+        search_response = requests.get(
+            "https://api.themoviedb.org/3/search/movie",
+            params={
+                "api_key": api_key,
+                "query": movie_title,
+                "include_adult": "false",
+                "language": "en-US",
+            },
+            timeout=30,
+        )
+        if search_response.status_code == 401:
+            return "https://placehold.co/500x750/0f172a/e2e8f0?text=Invalid+TMDB+Key"
+        if search_response.ok:
+            results = search_response.json().get("results", [])
+            for result in results:
+                poster_path = result.get("poster_path")
+                if poster_path:
+                    return "https://image.tmdb.org/t/p/w500/" + poster_path
+    except requests.RequestException:
+        pass
+
+    return poster_unavailable
 
 
 st.sidebar.markdown('<div class="sidebar-section"></div>', unsafe_allow_html=True)
