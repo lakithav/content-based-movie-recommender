@@ -14,7 +14,16 @@ SIMILARITY_PATH = MODEL_DIR / "similarity.pkl"
 
 
 def get_tmdb_api_key():
-    return st.secrets.get("TMDB_API_KEY", "")
+    # Normalize accidental whitespace/quotes from secret values.
+    raw_key = st.secrets.get("TMDB_API_KEY", "")
+    return str(raw_key).strip().strip('"').strip("'")
+
+
+def normalize_movie_id(movie_id):
+    try:
+        return str(int(float(movie_id)))
+    except (TypeError, ValueError):
+        return ""
 
 
 def download_similarity_file_if_needed():
@@ -232,25 +241,33 @@ def recommend(movie):
   recommended_movies_name = []
   recommended_movies_poster = []
   for i in distances[1:6]:
-    movie_id = movies.iloc[i[0]].movie_id
+    movie_id = normalize_movie_id(movies.iloc[i[0]].movie_id)
     recommended_movies_name.append(movies.iloc[i[0]].title)
     recommended_movies_poster.append(fetch_poster(movie_id))
   return recommended_movies_name, recommended_movies_poster
 
 def fetch_poster(movie_id):
+    if not movie_id:
+        return "https://placehold.co/500x750/0f172a/e2e8f0?text=Poster+Unavailable"
+
     api_key = get_tmdb_api_key()
     if not api_key:
-        return "https://via.placeholder.com/500x750?text=No+API+Key"
+        return "https://placehold.co/500x750/0f172a/e2e8f0?text=No+API+Key"
 
-    response = requests.get(
-        'https://api.themoviedb.org/3/movie/{}?api_key={}&language=en-US'.format(movie_id, api_key),
-        timeout=30,
-    )
-    data = response.json()
-    poster_path = data.get('poster_path')
-    if not poster_path:
-        return "https://via.placeholder.com/500x750?text=Poster+Unavailable"
-    return "https://image.tmdb.org/t/p/w500/" + poster_path
+    try:
+        response = requests.get(
+            'https://api.themoviedb.org/3/movie/{}?api_key={}&language=en-US'.format(movie_id, api_key),
+            timeout=30,
+        )
+        response.raise_for_status()
+        data = response.json()
+        poster_path = data.get('poster_path')
+        if poster_path:
+            return "https://image.tmdb.org/t/p/w500/" + poster_path
+    except requests.RequestException:
+        pass
+
+    return "https://placehold.co/500x750/0f172a/e2e8f0?text=Poster+Unavailable"
 
 
 st.sidebar.markdown('<div class="sidebar-section"></div>', unsafe_allow_html=True)
