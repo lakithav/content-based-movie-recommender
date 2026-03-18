@@ -1,10 +1,63 @@
 import pickle
 import html
+import importlib
+from pathlib import Path
 import streamlit as st
 import requests
 
 
 st.set_page_config(page_title="NextWatch", layout="wide")
+
+MODEL_DIR = Path("web/model")
+MOVIES_PATH = MODEL_DIR / "movie_list.pkl"
+SIMILARITY_PATH = MODEL_DIR / "similarity.pkl"
+
+
+def get_tmdb_api_key():
+    return st.secrets.get("TMDB_API_KEY", "")
+
+
+def download_similarity_file_if_needed():
+    if SIMILARITY_PATH.exists():
+        return
+
+    similarity_url = st.secrets.get("SIMILARITY_URL", "")
+    if not similarity_url:
+        st.error(
+            "Missing SIMILARITY_URL secret. Add it in Streamlit Cloud: Settings -> Secrets."
+        )
+        st.stop()
+
+    MODEL_DIR.mkdir(parents=True, exist_ok=True)
+
+    with st.spinner("Downloading similarity model... this may take a minute on first run."):
+        try:
+            # gdown handles Google Drive share/view links and large-file confirmations.
+            if "drive.google.com" in similarity_url:
+                gdown = importlib.import_module("gdown")
+
+                gdown.download(
+                    url=similarity_url,
+                    output=str(SIMILARITY_PATH),
+                    quiet=True,
+                    fuzzy=True,
+                )
+            else:
+                response = requests.get(similarity_url, stream=True, timeout=120)
+                response.raise_for_status()
+                with open(SIMILARITY_PATH, "wb") as model_file:
+                    for chunk in response.iter_content(chunk_size=1024 * 1024):
+                        if chunk:
+                            model_file.write(chunk)
+        except Exception as error:
+            if SIMILARITY_PATH.exists():
+                SIMILARITY_PATH.unlink()
+            st.error(f"Failed to download similarity model: {error}")
+            st.stop()
+
+    if not SIMILARITY_PATH.exists() or SIMILARITY_PATH.stat().st_size == 0:
+        st.error("Downloaded similarity model is missing or empty. Check SIMILARITY_URL.")
+        st.stop()
 
 st.markdown(
         """
@@ -185,9 +238,19 @@ def recommend(movie):
   return recommended_movies_name, recommended_movies_poster
 
 def fetch_poster(movie_id):
-    response = requests.get('https://api.themoviedb.org/3/movie/{}?api_key=59b306e04c87471e61ddc1e0250e38e6&language=en-US'.format(movie_id))
+    api_key = get_tmdb_api_key()
+    if not api_key:
+        return "https://via.placeholder.com/500x750?text=No+API+Key"
+
+    response = requests.get(
+        'https://api.themoviedb.org/3/movie/{}?api_key={}&language=en-US'.format(movie_id, api_key),
+        timeout=30,
+    )
     data = response.json()
-    return "https://image.tmdb.org/t/p/w500/" + data['poster_path']
+    poster_path = data.get('poster_path')
+    if not poster_path:
+        return "https://via.placeholder.com/500x750?text=Poster+Unavailable"
+    return "https://image.tmdb.org/t/p/w500/" + poster_path
 
 
 st.sidebar.markdown('<div class="sidebar-section"></div>', unsafe_allow_html=True)
@@ -197,8 +260,9 @@ st.sidebar.markdown(
     unsafe_allow_html=True,
 )
 
-movies = pickle.load(open('web/model/movie_list.pkl', 'rb'))
-similarity = pickle.load(open('web/model/similarity.pkl', 'rb'))
+movies = pickle.load(open(MOVIES_PATH, 'rb'))
+download_similarity_file_if_needed()
+similarity = pickle.load(open(SIMILARITY_PATH, 'rb'))
 
 st.sidebar.markdown('<div class="sidebar-divider"></div>', unsafe_allow_html=True)
 st.sidebar.markdown(
