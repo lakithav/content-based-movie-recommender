@@ -44,13 +44,22 @@ def download_similarity_file_if_needed():
             # gdown handles Google Drive share/view links and large-file confirmations.
             if "drive.google.com" in similarity_url:
                 gdown = importlib.import_module("gdown")
-
-                gdown.download(
-                    url=similarity_url,
-                    output=str(SIMILARITY_PATH),
-                    quiet=True,
-                    fuzzy=True,
-                )
+                try:
+                    gdown.download(
+                        url=similarity_url,
+                        output=str(SIMILARITY_PATH),
+                        quiet=True,
+                        fuzzy=True,
+                    )
+                except TypeError as type_error:
+                    # Some gdown versions do not support the fuzzy argument.
+                    if "fuzzy" not in str(type_error):
+                        raise
+                    gdown.download(
+                        url=similarity_url,
+                        output=str(SIMILARITY_PATH),
+                        quiet=True,
+                    )
             else:
                 response = requests.get(similarity_url, stream=True, timeout=120)
                 response.raise_for_status()
